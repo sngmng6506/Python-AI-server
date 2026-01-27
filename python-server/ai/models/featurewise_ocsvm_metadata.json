@@ -1,0 +1,12 @@
+{
+  "model_type": "FeatureWiseLinearOneClassSVM",
+  "window_size": 5,
+  "n_features": 25000,
+  "nu": 0.1,
+  "epochs": 50,
+  "learning_rate": 0.001,
+  "model_path": "E:\\h202403659\\RHK_Server\\learn_model\\models\\featurewise_ocsvm_unified.pth",
+  "training_samples": 4496,
+  "normal_samples": 4500,
+  "note": "정상 데이터로 학습된 Linear One-Class SVM"
+}

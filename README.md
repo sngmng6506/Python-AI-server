@@ -104,6 +104,90 @@ sequenceDiagram
     end
 ```
 
+<details>
+<summary><h2>📋 요구사항 명세서 (클릭하여 펼치기)</h2></summary>
+
+### 1. 개요 (Overview)
+
+본 문서는 제조 현장의 센서 데이터(온도, 진동 등)를 수집하는 **NestJS(Main Server)** 와 이를 분석하여 이상 징후를 탐지하는 **Python FastAPI(AI Engine)** 간의 연동 규격을 정의한다.
+
+---
+
+### 2. 시스템 아키텍처 (Architecture)
+
+| 항목 | 규격 |
+|------|------|
+| **통신 프로토콜** | HTTP/1.1 (REST API) |
+| **통신 패턴** | 비동기 Webhook |
+| **데이터 포맷** | JSON (`Content-Type: application/json`) |
+
+#### 통신 방향
+- **Forward**: NestJS → Python (데이터 전송, 응답 대기 X)
+- **Backward**: Python → NestJS (이상 감지 시에만 호출)
+
+---
+
+### 3. 핵심 요구사항 (Functional Requirements)
+
+#### 3.1. 데이터 전송 (NestJS → Python)
+
+| 항목 | 요구사항 |
+|------|----------|
+| **주기** | 1초 |
+| **용량** | 최대 500KB |
+| **데이터 구조** | 약 25,000개의 Key-Value Pair |
+| **엔드포인트** | `POST /data-enqueue` |
+| **응답 처리** | Python 서버는 데이터를 메모리 큐(Queue)에 적재 후 즉시 `202 Accepted` 반환 (Blocking 방지) |
+| **검증** | 데이터 타입 및 구조 검증 필요 |
+
+#### 3.2. AI 모델 관리 (Model Serving)
+
+##### 모델 프리로딩 (Pre-loading)
+- ✅ 서버 시작(Startup) 시점에 모델을 GPU/CPU 메모리에 로드
+- ✅ 로드 실패 시 서버 구동 자체를 차단하거나 에러 상태로 기동
+
+##### 배치 처리 (Batching)
+- ✅ 1초에 한 번 들어오는 25,000개 데이터를 그대로 처리하거나, 내부 큐에서 일정량(예: 64 프레임)이 찼을 때 `model.predict()` 실행
+- ✅ 배치 크기 옵션 처리 (`INFERENCE_BATCH_SIZE` 환경 변수)
+
+#### 3.3. 결과 피드백 (Python → NestJS)
+
+| 항목 | 요구사항 |
+|------|----------|
+| **조건** | AI 추론 결과가 설정된 임계치(Threshold)를 초과하여 '이상(Anomaly)'으로 판단될 경우에만 전송 |
+| **엔드포인트** | `POST {NEST_HOST}/api/v1/alert` (NestJS 측 구현) |
+| **재시도 전략** | NestJS 서버 일시 장애를 대비해 HTTP 호출 실패 시 1~5회 재시도 (Exponential Backoff) |
+
+---
+
+### 4. 안정성 및 운영 요구사항 (Reliability & Ops)
+
+#### 4.1. 헬스 체크 (Health Check)
+
+| Probe | 엔드포인트 | 목적 | 응답 |
+|-------|-----------|------|------|
+| **Liveness** | `GET /health/live` | 서버 프로세스가 떠 있는가? | `200 OK` (가벼운 로직) |
+| **Readiness** | `GET /health/ready` | AI 모델이 로드되어 추론 가능한가? | 준비 완료: `200 OK`, 로딩 중: `503 Service Unavailable` |
+
+##### Readiness 체크 로직
+- 모델 변수가 `None`이 아닌지 확인
+- GPU 연결 상태 확인
+
+#### 4.2. 로깅 및 모니터링 (Observability)
+
+> 단순 텍스트 로그가 아닌 **JSON 구조화 로그(Structured Logging)** 사용 (추후 ELK 등에서 분석)
+
+##### 필수 기록 항목
+
+| 항목 | 설명 | 구현 상태 |
+|------|------|-----------|
+| **Latency** | 데이터 수신 ~ 추론 완료까지 걸린 시간 (ms 단위) | ✅ |
+| **Input/Output** | 이상 감지 시, 당시의 입력 데이터 ID(Timestamp)와 추론 스코어 | ✅ |
+| **Resource** | 추론 시점의 CPU/GPU 메모리 점유율 | ✅ |
+| **Error** | 데이터 파싱 에러, 모델 연산 에러 등 Exception Traceback | ✅ |
+
+</details>
+
 ## 🧠 AI 모델
 
 ### Feature-wise Linear One-Class SVM
